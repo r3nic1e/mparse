@@ -1,26 +1,33 @@
-package main
+package mparse
 
-import "github.com/davecgh/go-spew/spew"
-import "reflect"
-import "strings"
-import "bufio"
-import "strconv"
-import "fmt"
+import (
+	"bufio"
+	"reflect"
+	"strconv"
+	"strings"
+)
 
-type inter struct {
-	A string
-	B bool
+type parseError struct {
+	message string
 }
 
-type test struct {
-	in inter `mparse:"some text"`
-	C  int64
-	D  string `mparse:"default"`
-	A  bool   `mparse:"abc"`
+func (e *parseError) Error() string {
+	return e.message
 }
 
-func parseString(str string, v interface{}) {
-	value := reflect.Indirect(reflect.ValueOf(v)).Elem()
+func newError(message string) error {
+	return &parseError{message: message}
+}
+
+func Parse(str string, v interface{}) (error) {
+	value := reflect.ValueOf(v)
+	if value.Kind() != reflect.Ptr {
+		return newError("Pointer required")
+	}
+	value = value.Elem()
+	if value.Kind() != reflect.Struct {
+		return newError("Pointer to struct required")
+	}
 	fields := getStructTypes(value.Type(), true)
 
 	reader := strings.NewReader(str)
@@ -29,23 +36,24 @@ func parseString(str string, v interface{}) {
 		line := scanner.Text()
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "/") {
-			f := strings.Fields(strings.TrimPrefix(line, "/"))
+			unprefixedLine := strings.TrimPrefix(line, "/")
+			f := strings.Fields(unprefixedLine)
 			if len(f) > 0 {
 				name := strings.ToLower(f[0])
 
-				end := strings.TrimPrefix(line, f[0])
+				end := strings.TrimPrefix(unprefixedLine, f[0])
 				end = strings.TrimSpace(end)
 
 				if _, ok := fields[name]; ok {
 					setField(&value, name, end)
-				} else {
-					appendDefaultField(&value, end)
+					continue
 				}
-			} else {
-				appendDefaultField(&value, line)
 			}
 		}
+		appendDefaultField(&value, line)
 	}
+
+	return nil
 }
 
 func setValue(v *reflect.Value, value string) {
@@ -157,22 +165,4 @@ func getStructTypes(v reflect.Type, recursive bool) map[string]reflect.Type {
 	}
 
 	return types
-}
-
-func main() {
-	msg := `/a true
-	/b true
-	/c 12312412
-	/d test1
-	/d test2
-	msg`
-
-	a := &test{}
-
-	fmt.Println("Test message:", msg)
-	fmt.Println()
-	spew.Dump(a)
-	fmt.Println()
-	parseString(msg, &a)
-	spew.Dump(a)
 }
